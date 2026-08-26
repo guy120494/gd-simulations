@@ -22,6 +22,7 @@ from .datasets import (
 )
 from .experiments import (
     experiment_5f_hit_linear_condition_with_low_loss,
+    run_experiment_5f_parallel,
 )
 
 __all__ = [

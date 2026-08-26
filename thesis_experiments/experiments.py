@@ -1,3 +1,6 @@
+import multiprocessing
+import subprocess
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -43,6 +46,8 @@ def experiment_5f_hit_linear_condition_with_low_loss(
     beta2: float = 0.999,
     sample_every: int = 1000,
     track_weight_diff: bool = True,
+    track_convergence: bool = True,
+    output_dir: str = ".",
 ):
     """
     Runs num_runs times with random init:
@@ -62,6 +67,8 @@ def experiment_5f_hit_linear_condition_with_low_loss(
         experiment_5f_metric_hist.png
         experiment_5f_hit_time_hist.csv
         experiment_5f_metric_hist.csv
+        experiment_5f_convergence_delta_hist_{opt}.png/csv  (if track_convergence)
+        experiment_5f_convergence_std_hist_{opt}.png/csv    (if track_convergence)
     """
 
     rng = np.random.default_rng(seed)
@@ -69,6 +76,9 @@ def experiment_5f_hit_linear_condition_with_low_loss(
 
     if sample_every <= 0:
         raise ValueError("sample_every must be a positive integer.")
+
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
 
     hit_times = np.full(num_runs, -1, dtype=int)
     metric_values = []
@@ -79,19 +89,22 @@ def experiment_5f_hit_linear_condition_with_low_loss(
     count_loss_abort = 0
     count_max_iterations = 0
 
+    convergence_deltas = []
+    convergence_stds = []
+
     opt_name = optimizer_name.upper()
     lr_tag = _format_lr_tag(learning_rate)
 
-    runs_csv_path = "experiment_5f_runs.csv"
-    summary_txt_path = "experiment_5f_summary.txt"
-    hist1_csv_path = "experiment_5f_hit_time_hist.csv"
-    hist2_csv_path = "experiment_5f_metric_hist.csv"
-    trajectory_csv_path = f"experiment_5f_wdiff_trajectory_{opt_name.lower()}_lr{lr_tag}.csv"
-    wdiff_avg_csv_path = f"experiment_5f_wdiff_avg_{opt_name.lower()}_lr{lr_tag}.csv"
-    wdiff_avg_png_path = f"experiment_5f_wdiff_avg_{opt_name.lower()}_lr{lr_tag}.png"
-    compare_png_path = f"experiment_5f_wdiff_avg_compare_lr{lr_tag}.png"
-    adam_bias_hist_csv_path = f"experiment_5f_bias_abs_hist_adam_lr{lr_tag}.csv"
-    adam_bias_hist_png_path = f"experiment_5f_bias_abs_hist_adam_lr{lr_tag}.png"
+    runs_csv_path = out / "experiment_5f_runs.csv"
+    summary_txt_path = out / "experiment_5f_summary.txt"
+    hist1_csv_path = out / "experiment_5f_hit_time_hist.csv"
+    hist2_csv_path = out / "experiment_5f_metric_hist.csv"
+    trajectory_csv_path = out / f"experiment_5f_wdiff_trajectory_{opt_name.lower()}_lr{lr_tag}.csv"
+    wdiff_avg_csv_path = out / f"experiment_5f_wdiff_avg_{opt_name.lower()}_lr{lr_tag}.csv"
+    wdiff_avg_png_path = out / f"experiment_5f_wdiff_avg_{opt_name.lower()}_lr{lr_tag}.png"
+    compare_png_path = out / f"experiment_5f_wdiff_avg_compare_lr{lr_tag}.png"
+    adam_bias_hist_csv_path = out / f"experiment_5f_bias_abs_hist_adam_lr{lr_tag}.csv"
+    adam_bias_hist_png_path = out / f"experiment_5f_bias_abs_hist_adam_lr{lr_tag}.png"
 
     with open(runs_csv_path, "w", newline="") as f_csv:
         writer = csv.DictWriter(
@@ -104,6 +117,8 @@ def experiment_5f_hit_linear_condition_with_low_loss(
                 "metric_min",
                 "adam_min_norm_vhat",
                 "final_bias_abs",
+                "convergence_delta",
+                "convergence_std",
             ],
         )
         writer.writeheader()
@@ -137,6 +152,8 @@ def experiment_5f_hit_linear_condition_with_low_loss(
             min_vhat_norm = float("inf")
             run_samples = []
             sampled_iterations = set()
+            # Tracks last 11 samples of |b2-b1| → covers last 10*sample_every iterations
+            conv_deque = deque(maxlen=11) if track_convergence else None
 
             while t <= max_iterations:
 
@@ -152,9 +169,12 @@ def experiment_5f_hit_linear_condition_with_low_loss(
                 w_diff_t = w1 - w2
                 bias_diff_abs_t = abs(b2 - b1)
 
-                if track_weight_diff and (t % sample_every == 0):
-                    run_samples.append((t, w1, w2, b1, b2, loss_t))
-                    sampled_iterations.add(t)
+                if t % sample_every == 0:
+                    if track_weight_diff:
+                        run_samples.append((t, w1, w2, b1, b2, loss_t))
+                        sampled_iterations.add(t)
+                    if track_convergence:
+                        conv_deque.append(bias_diff_abs_t)
 
                 # Abort rule
                 if t == 10_000 and not (loss_t < loss_threshold):
@@ -222,8 +242,14 @@ def experiment_5f_hit_linear_condition_with_low_loss(
             if opt_name == "ADAM":
                 adam_bias_abs_values.append(final_bias_abs)
 
+            # Convergence check: only meaningful for runs that reached max_iterations
+            if track_convergence and stop_reason != "loss-abort" and conv_deque is not None and len(conv_deque) == conv_deque.maxlen:
+                arr = np.array(list(conv_deque))
+                convergence_deltas.append(float(abs(arr[-1] - arr[0])))
+                convergence_stds.append(float(np.std(arr)))
+
             if track_weight_diff and (t not in sampled_iterations):
-                run_samples.append((t, w1_T - w2_T, final_bias_abs, loss_t))
+                run_samples.append((t, w1_T, w2_T, b1_T, b2_T, loss_t))
 
             metric_val = ""
             if stop_reason == "hit condition":
@@ -233,6 +259,13 @@ def experiment_5f_hit_linear_condition_with_low_loss(
             adam_min_norm_val = ""
             if opt_name == "ADAM" and min_vhat_norm != float("inf"):
                 adam_min_norm_val = float(min_vhat_norm)
+
+            conv_delta_val = ""
+            conv_std_val = ""
+            if track_convergence and stop_reason != "loss-abort" and conv_deque is not None and len(conv_deque) == conv_deque.maxlen:
+                arr = np.array(list(conv_deque))
+                conv_delta_val = float(abs(arr[-1] - arr[0]))
+                conv_std_val = float(np.std(arr))
 
             writer.writerow({
                 "run": r,
@@ -252,6 +285,8 @@ def experiment_5f_hit_linear_condition_with_low_loss(
                 "metric_min": metric_val,
                 "adam_min_norm_vhat": adam_min_norm_val,
                 "final_bias_abs": final_bias_abs,
+                "convergence_delta": conv_delta_val,
+                "convergence_std": conv_std_val,
             })
             if track_weight_diff:
                 for t_sample, w_1_sample, w_2_sample, b_1_sample, b_2_sample, loss_sample in run_samples:
@@ -287,7 +322,7 @@ def experiment_5f_hit_linear_condition_with_low_loss(
         plt.xlabel("Iterations")
         plt.ylabel("Count")
         plt.tight_layout()
-        plt.savefig("experiment_5f_hit_time_hist.png", dpi=200)
+        plt.savefig(out / "experiment_5f_hit_time_hist.png", dpi=200)
         plt.close()
 
         with open(hist1_csv_path, "w", newline="") as f:
@@ -316,7 +351,7 @@ def experiment_5f_hit_linear_condition_with_low_loss(
         plt.xlabel("Value")
         plt.ylabel("Count")
         plt.tight_layout()
-        plt.savefig("experiment_5f_metric_hist.png", dpi=200)
+        plt.savefig(out / "experiment_5f_metric_hist.png", dpi=200)
         plt.close()
 
         with open(hist2_csv_path, "w", newline="") as f:
@@ -328,6 +363,54 @@ def experiment_5f_hit_linear_condition_with_low_loss(
                     hist2_edges[i+1],
                     hist2_counts[i]
                 ])
+
+    # -------------------------
+    # Histogram 3: Convergence delta (Option A)
+    # -------------------------
+    if track_convergence and len(convergence_deltas) > 0:
+        delta_arr = np.array(convergence_deltas)
+        delta_counts, delta_edges = np.histogram(delta_arr, bins=40)
+        conv_delta_csv = out / f"experiment_5f_convergence_delta_hist_{opt_name.lower()}_lr{lr_tag}.csv"
+        conv_delta_png = out / f"experiment_5f_convergence_delta_hist_{opt_name.lower()}_lr{lr_tag}.png"
+
+        plt.figure(figsize=(8, 5))
+        plt.hist(delta_arr, bins=40)
+        plt.title(f"Option A: |b2-b1| change over last {10 * sample_every} iters ({opt_name}, lr={learning_rate})")
+        plt.xlabel("|Δ|b2-b1||")
+        plt.ylabel("Count")
+        plt.tight_layout()
+        plt.savefig(conv_delta_png, dpi=200)
+        plt.close()
+
+        with open(conv_delta_csv, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["bin_left", "bin_right", "count"])
+            for i in range(len(delta_counts)):
+                writer.writerow([delta_edges[i], delta_edges[i + 1], delta_counts[i]])
+
+    # -------------------------
+    # Histogram 4: Convergence std (Option B)
+    # -------------------------
+    if track_convergence and len(convergence_stds) > 0:
+        std_arr = np.array(convergence_stds)
+        std_counts, std_edges = np.histogram(std_arr, bins=40)
+        conv_std_csv = out / f"experiment_5f_convergence_std_hist_{opt_name.lower()}_lr{lr_tag}.csv"
+        conv_std_png = out / f"experiment_5f_convergence_std_hist_{opt_name.lower()}_lr{lr_tag}.png"
+
+        plt.figure(figsize=(8, 5))
+        plt.hist(std_arr, bins=40)
+        plt.title(f"Option B: std(|b2-b1|) over last {10 * sample_every} iters ({opt_name}, lr={learning_rate})")
+        plt.xlabel("std(|b2-b1|)")
+        plt.ylabel("Count")
+        plt.tight_layout()
+        plt.savefig(conv_std_png, dpi=200)
+        plt.close()
+
+        with open(conv_std_csv, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["bin_left", "bin_right", "count"])
+            for i in range(len(std_counts)):
+                writer.writerow([std_edges[i], std_edges[i + 1], std_counts[i]])
 
     avg_counts = None
     avg_t_values = None
@@ -354,7 +437,8 @@ def experiment_5f_hit_linear_condition_with_low_loss(
 
         grouped_wdiff = defaultdict(list)
         for row in trajectory_records:
-            grouped_wdiff[int(row["t"])].append(float(row["w_diff"]))
+            w_diff = float(row["w_1"]) - float(row["w_2"])
+            grouped_wdiff[int(row["t"])].append(w_diff)
 
         avg_t_values = np.array(sorted(grouped_wdiff.keys()), dtype=int)
         avg_mean_wdiff = np.array(
@@ -389,7 +473,7 @@ def experiment_5f_hit_linear_condition_with_low_loss(
         plt.close()
 
         other_opt = "gd" if opt_name == "ADAM" else "adam"
-        other_avg_path = f"experiment_5f_wdiff_avg_{other_opt}_lr{lr_tag}.csv"
+        other_avg_path = out / f"experiment_5f_wdiff_avg_{other_opt}_lr{lr_tag}.csv"
         other_curve = _load_avg_curve(other_avg_path)
         if other_curve is not None:
             other_t, other_mean = other_curve
@@ -504,6 +588,124 @@ def experiment_5f_hit_linear_condition_with_low_loss(
 
 
 
+def run_experiment_5f_parallel(
+    num_workers: int,
+    num_runs: int,
+    output_dir: str = ".",
+    seed: int = 42,
+    max_iterations: int = 10_000_000,
+    learning_rate: float = 0.05,
+    optimizer_name: str = "gd",
+    beta1: float = 0.9,
+    beta2: float = 0.999,
+    sample_every: int = 1000,
+    track_weight_diff: bool = False,
+    **kwargs,
+):
+    """Split num_runs across num_workers subprocesses, each writing to output_dir/worker_N/,
+    then merge experiment_5f_runs.csv and regenerate convergence histograms."""
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    runs_per_worker = num_runs // num_workers
+    remainder = num_runs % num_workers
+
+    main_py = Path(__file__).parent.parent / "main.py"
+
+    procs = []
+    for i in range(num_workers):
+        n = runs_per_worker + (1 if i < remainder else 0)
+        worker_out = out / f"worker_{i}"
+        cmd = [
+            sys.executable, str(main_py),
+            "--runs", str(n),
+            "--max-iterations", str(max_iterations),
+            "--optimizer", optimizer_name,
+            "--lr", str(learning_rate),
+            "--seed", str(seed + i),
+            "--beta1", str(beta1),
+            "--beta2", str(beta2),
+            "--sample-every", str(sample_every),
+            "--output-dir", str(worker_out),
+            "--workers", "1",
+        ]
+        if not track_weight_diff:
+            cmd.append("--no-track-weight-diff")
+        log_path = out / f"worker_{i}.log"
+        log_file = open(log_path, "w")
+        procs.append((i, subprocess.Popen(cmd, stdout=log_file, stderr=log_file)))
+        print(f"  Worker {i}: {n} runs → {worker_out}")
+
+    print(f"Launched {num_workers} workers for {num_runs} total runs. Waiting...")
+    for i, p in procs:
+        ret = p.wait()
+        print(f"  Worker {i} done (exit {ret})")
+
+    # Merge runs CSVs
+    merged_csv = out / "experiment_5f_runs.csv"
+    header_written = False
+    global_run = 0
+    with open(merged_csv, "w", newline="") as fout:
+        for i in range(num_workers):
+            worker_csv = out / f"worker_{i}" / "experiment_5f_runs.csv"
+            if not worker_csv.exists():
+                continue
+            with open(worker_csv, newline="") as fin:
+                reader = csv.DictReader(fin)
+                if not header_written:
+                    writer = csv.DictWriter(fout, fieldnames=reader.fieldnames)
+                    writer.writeheader()
+                    header_written = True
+                else:
+                    writer = csv.DictWriter(fout, fieldnames=reader.fieldnames)
+                for row in reader:
+                    row["run"] = global_run
+                    writer.writerow(row)
+                    global_run += 1
+
+    # Regenerate convergence histograms from merged CSV
+    opt_name = optimizer_name.upper()
+    lr = learning_rate
+    lr_tag = _format_lr_tag(lr)
+    # sample_every already in scope
+
+    deltas, stds = [], []
+    with open(merged_csv, newline="") as f:
+        for row in csv.DictReader(f):
+            if row.get("convergence_delta") not in ("", None):
+                deltas.append(float(row["convergence_delta"]))
+            if row.get("convergence_std") not in ("", None):
+                stds.append(float(row["convergence_std"]))
+
+    for arr, label, xlabel, tag in [
+        (deltas, "delta", "|Δ|b2-b1||", "convergence_delta"),
+        (stds,   "std",   "std(|b2-b1|)", "convergence_std"),
+    ]:
+        if not arr:
+            continue
+        a = np.array(arr)
+        counts, edges = np.histogram(a, bins=40)
+        png = out / f"experiment_5f_{tag}_hist_{opt_name.lower()}_lr{lr_tag}.png"
+        csv_path = out / f"experiment_5f_{tag}_hist_{opt_name.lower()}_lr{lr_tag}.csv"
+
+        plt.figure(figsize=(8, 5))
+        plt.hist(a, bins=40)
+        title_label = "Option A" if label == "delta" else "Option B"
+        plt.title(f"{title_label}: {xlabel} over last {10 * sample_every} iters ({opt_name}, lr={lr})")
+        plt.xlabel(xlabel)
+        plt.ylabel("Count")
+        plt.tight_layout()
+        plt.savefig(png, dpi=200)
+        plt.close()
+
+        with open(csv_path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["bin_left", "bin_right", "count"])
+            for j in range(len(counts)):
+                w.writerow([edges[j], edges[j + 1], counts[j]])
+
+    print(f"\nMerged {global_run} runs → {merged_csv}")
+    print(f"Convergence histograms written to {out}/")
 def experiment_1d_from_disk_ratio(
     min_dist_pos: float,
     min_dist_neg: float,
