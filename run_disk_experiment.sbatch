@@ -4,7 +4,7 @@
 #SBATCH --time 3-23:59:59                      ### limit the time of job running. Make sure it is not greater than the partition time limit (7 days)!! Format: D-H:MM:SS
 #SBATCH --job-name run_experiment_disks                   ### name of the job. replace my_job with your desired job name
 #SBATCH --output run_experiment_disks-%J.out                ### output log for running job - %J is the job number variable
-#SBATCH --mail-user=smorodin@post.bgu.ac.il      ### user’s email for sending job status notifications
+#SBATCH --mail-user=<your-email>      ### user’s email for sending job status notifications
 #SBATCH --mail-type=END,FAIL             ### conditions for sending the email. ALL,BEGIN,END,FAIL, REQUEU, NONE
 #SBATCH --gpus=0  ### number of GPUs. Choosing type e.g.: #SBATCH --gpus=gtx_1080:1 , or rtx_2080, or rtx_3090 . Allocating more than 1 requires the IT team’s permission
 #SBATCH --mem=8G ### amount of RAM memory, allocating more than 60G requires IT team's permission
