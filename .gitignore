@@ -25,3 +25,23 @@ Thumbs.db
 # Project specific
 *.png
 !README*.png
+
+# --- Experiment outputs ----------------------------------------------
+# Regenerate with, e.g.:
+#   python main.py --optimizer adam --runs 1000 --workers 6 --lr 0.05 \
+#       --max-iterations 10000000 --no-track-weight-diff --output-dir adam_conv_lr0p05
+experiment_5f_*
+worker_*/
+worker_*.log
+*.log
+
+# Figures generated from the runs CSV (see --export-tikz)
+figure_bias_hist.*
+
+# Archives and editor/backup leftovers
+*.zip
+*.bak
+
+# Keep the run data behind Figure 6 in the paper: it is small (240K) and is
+# the sole input to the histogram, so the figure stays reproducible.
+!adam_conv_lr0p05/experiment_5f_runs.csv

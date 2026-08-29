@@ -83,7 +83,6 @@ def experiment_5f_hit_linear_condition_with_low_loss(
     hit_times = np.full(num_runs, -1, dtype=int)
     metric_values = []
     trajectory_records = []
-    adam_bias_abs_values = []
 
     count_hit = 0
     count_loss_abort = 0
@@ -103,8 +102,6 @@ def experiment_5f_hit_linear_condition_with_low_loss(
     wdiff_avg_csv_path = out / f"experiment_5f_wdiff_avg_{opt_name.lower()}_lr{lr_tag}.csv"
     wdiff_avg_png_path = out / f"experiment_5f_wdiff_avg_{opt_name.lower()}_lr{lr_tag}.png"
     compare_png_path = out / f"experiment_5f_wdiff_avg_compare_lr{lr_tag}.png"
-    adam_bias_hist_csv_path = out / f"experiment_5f_bias_abs_hist_adam_lr{lr_tag}.csv"
-    adam_bias_hist_png_path = out / f"experiment_5f_bias_abs_hist_adam_lr{lr_tag}.png"
 
     with open(runs_csv_path, "w", newline="") as f_csv:
         writer = csv.DictWriter(
@@ -239,8 +236,6 @@ def experiment_5f_hit_linear_condition_with_low_loss(
             w2_T = float(params.w[1])
             b2_T = float(params.b[1])
             final_bias_abs = abs(b2_T - b1_T)
-            if opt_name == "ADAM":
-                adam_bias_abs_values.append(final_bias_abs)
 
             # Convergence check: only meaningful for runs that reached max_iterations
             if track_convergence and stop_reason != "loss-abort" and conv_deque is not None and len(conv_deque) == conv_deque.maxlen:
@@ -487,32 +482,6 @@ def experiment_5f_hit_linear_condition_with_low_loss(
             plt.legend()
             plt.savefig(compare_png_path, dpi=200)
             plt.close()
-
-    adam_bias_counts = None
-    adam_bias_edges = None
-    if opt_name == "ADAM" and len(adam_bias_abs_values) > 0:
-        adam_bias_arr = np.array(adam_bias_abs_values, dtype=float)
-        adam_bias_counts, adam_bias_edges = np.histogram(adam_bias_arr, bins=40)
-
-        plt.figure(figsize=(8, 5))
-        plt.hist(adam_bias_arr, bins=40)
-        plt.title(f"Histogram of |b2-b1| (ADAM, lr={learning_rate})")
-        plt.xlabel("|b2 - b1|")
-        plt.ylabel("Count")
-        plt.tight_layout()
-        plt.savefig(adam_bias_hist_png_path, dpi=200)
-        plt.close()
-
-        with open(adam_bias_hist_csv_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(["bin_left", "bin_right", "count"])
-            for i in range(len(adam_bias_counts)):
-                writer.writerow([
-                    adam_bias_edges[i],
-                    adam_bias_edges[i + 1],
-                    adam_bias_counts[i],
-                ])
-
     # -------------------------
     # Summary file
     # -------------------------
@@ -554,14 +523,6 @@ def experiment_5f_hit_linear_condition_with_low_loss(
             if Path(compare_png_path).exists():
                 f.write(f"wdiff_compare_plot={compare_png_path}\n")
 
-        if adam_bias_counts is not None:
-            f.write("\nAdam |b2-b1| histogram:\n")
-            f.write("edges:\n")
-            f.write(",".join(map(str, adam_bias_edges)) + "\n")
-            f.write("counts:\n")
-            f.write(",".join(map(str, adam_bias_counts)) + "\n")
-            f.write(f"adam_bias_hist_csv={adam_bias_hist_csv_path}\n")
-            f.write(f"adam_bias_hist_plot={adam_bias_hist_png_path}\n")
 
     print("\n=== Experiment 5f summary ===")
     print(f"Hit condition: {count_hit}/{num_runs}")
@@ -582,9 +543,6 @@ def experiment_5f_hit_linear_condition_with_low_loss(
         print(f" - {wdiff_avg_png_path}")
         if Path(compare_png_path).exists():
             print(f" - {compare_png_path}")
-    if adam_bias_counts is not None:
-        print(f" - {adam_bias_hist_png_path}")
-        print(f" - {adam_bias_hist_csv_path}")
 
 
 
