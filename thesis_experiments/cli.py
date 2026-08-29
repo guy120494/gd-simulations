@@ -1,5 +1,6 @@
 import argparse
 import sys
+from pathlib import Path
 from typing import List, Optional, Union
 
 
@@ -66,8 +67,42 @@ def main(argv: Optional[List[str]] = None) -> None:
         help="Number of parallel workers to split runs across (default: 1)",
     )
 
+    parser.add_argument(
+        "--export-tikz",
+        type=str,
+        metavar="RUNS_CSV",
+        help="Regenerate the |b2-b1| histogram figure from an existing "
+             "experiment_5f_runs.csv and exit (does not run the experiment)",
+    )
+    parser.add_argument(
+        "--export-tikz-out",
+        type=str,
+        default=None,
+        help="Where to write the .tex for --export-tikz "
+             "(default: figure_bias_hist.tex next to the CSV)",
+    )
+
     args = parser.parse_args(argv)
     print(args)
+
+    if args.export_tikz:
+        from .figures import export_bias_hist_tikz
+
+        runs_csv = Path(args.export_tikz)
+        out_tex = Path(args.export_tikz_out) if args.export_tikz_out \
+            else runs_csv.parent / "figure_bias_hist.tex"
+        stats = export_bias_hist_tikz(
+            runs_csv,
+            out_tex,
+            out_png=out_tex.with_suffix(".png"),
+        )
+        print(f"\nWrote {out_tex}")
+        if out_tex.with_suffix(".png").exists():
+            print(f"Wrote {out_tex.with_suffix('.png')}")
+        print("\n=== Figure statistics (check these against the caption) ===")
+        for k, v in stats.items():
+            print(f"  {k} = {v}")
+        return
 
     # Delayed import so `--help`/`--list-experiments` are fast.
     from .experiments import experiment_5f_hit_linear_condition_with_low_loss, run_experiment_5f_parallel
