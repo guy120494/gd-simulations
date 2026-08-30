@@ -120,15 +120,36 @@ Running the experiment produces:
 
 ---
 
+# Wide Network Experiments
+
+`main_disks.py` trains a 2-layer with 10 neurons ReLU network on the 2-disk dataset (`thesis_experiments/experiment_disks.py`).
+
+The commands used to run the disk experiments (200 runs, lr=0.1, number of neurons=10, input's dimension=5, training set size=20):
+
+```bash
+# Adam
+python main_disks.py --optimizer adam --max-iterations 1000001 --k 10 --d 5 --n 20 --lr 0.1 --num-runs 200 --report-every 100000
+
+# GD
+python main_disks.py --optimizer gd --max-iterations 1000001 --k 10 --d 5 --n 20 --lr 0.1 --num-runs 200 --report-every 100000
+```
+
+See `python main_disks.py --help` for the full list of arguments (dataset size, network width, optimizer, output paths, etc.).
+
+---
+
 # Project Structure
 
 ```
-core.py         # Network, gradients, GD
-experiments.py  # Experiment 5f implementation
-datasets.py     # Dataset generation
-init_utils.py   # Parameter initialization
-cli.py          # Command-line interface
-main.py         # Entry point
+core.py           # Network, gradients, GD
+experiments.py    # Experiment 5f implementation
+datasets.py       # Dataset generation
+init_utils.py     # Parameter initialization
+cli.py            # Command-line interface
+main.py           # Entry point
+
+thesis_experiments/disk_*.py    # Disk experiment code (dataset, network, trainer, CLI)
+main_disks.py                   # Entry point — run this to run the disk experiments
 ```
 
 ---
