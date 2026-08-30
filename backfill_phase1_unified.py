@@ -24,8 +24,8 @@ import os
 
 import numpy as np
 
-from thesis_experiments.disk_dataset import create_disk_dataset
-from thesis_experiments.disk_trainer import train_phase1
+from wide_network_experiments.disk_dataset import create_disk_dataset
+from wide_network_experiments.disk_trainer import train_phase1
 
 FIELDNAMES = ["run", "step", "min_dist_large", "min_dist_small"]
 

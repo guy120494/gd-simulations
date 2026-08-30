@@ -11,7 +11,7 @@ Thin entrypoint + compatibility layer.
 
 
 def _run_cli() -> None:
-    from thesis_experiments.cli import main as cli_main
+    from wide_network_experiments.cli import main as cli_main
 
     cli_main()
 
@@ -20,5 +20,5 @@ if __name__ == "__main__":
     _run_cli()
 else:
     # Re-export API for notebooks/scripts that do `from main import *`
-    from thesis_experiments.api import *  # noqa: F401,F403
+    from wide_network_experiments.api import *  # noqa: F401,F403
 
